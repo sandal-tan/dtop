@@ -6,7 +6,7 @@ from typing import Dict
 
 
 from asciimatics.screen import Screen
-from asciimatics.widgets import Frame, Layout, Text, VerticalDivider, Label, Divider
+from asciimatics.widgets import Frame, Layout, Text, VerticalDivider, Label, Divider, MultiColumnListBox, Widget
 from dask.distributed import Client
 
 BACKGROUND = Screen.COLOUR_BLACK
@@ -61,7 +61,7 @@ def poll_for_workers(client, data):
 class WorkerInfoView(Frame):
 
     def __init__(self, screen, client: Client):
-        super(WorkerInfoView, self).__init__(screen, screen.height, screen.width, title='Worker Info', reduce_cpu=True)
+        super(WorkerInfoView, self).__init__(screen, screen.height, screen.width, title='Worker Info', reduce_cpu=False)
 
         self._model = client
         self._model._refresh_worker_info()
@@ -80,6 +80,9 @@ class WorkerInfoView(Frame):
         layout.add_widget(Label('Memory'), 4)
         layout.add_widget(VerticalDivider(), 5)
         layout.add_widget(Label('File Descriptors'), 6)
+
+        # TODO look into multi-column layout
+
         div_layout = Layout([100])
         self.add_layout(div_layout)
         div_layout.add_widget(Divider())
@@ -95,6 +98,10 @@ class WorkerInfoView(Frame):
             row_layout.add_widget(Label(worker.fds), 6)
 
         self.fix()
+
+    def _update(self, frame_no):
+        self.reset()
+        super(WorkerInfoView, self)._update(frame_no)
 
     @staticmethod
     def _get_human_readable_mem(byte_count: int) -> str:
