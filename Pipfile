@@ -8,7 +8,7 @@ verify_ssl = true
 [packages]
 picotui = "*"
 dask = "*"
-asciimatics = "*"
+asciimatics = {editable = true,git = "https://github.com/peterbrittain/asciimatics",ref = "master"}
 distributed = "*"
 
 [requires]
