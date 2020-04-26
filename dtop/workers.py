@@ -1,8 +1,11 @@
+"""Get data about Dask Workers and display their info in a scene."""
+
 import time
 from datetime import datetime as dt
 from collections import defaultdict
 import threading
 from typing import Dict
+from dataclasses import dataclass
 
 
 from asciimatics.screen import Screen
@@ -11,41 +14,80 @@ from asciimatics.parsers import AsciimaticsParser
 from dask.distributed import Client
 
 BACKGROUND = Screen.COLOUR_BLACK
+"""The default background color."""
+
 PALETTE = defaultdict(
     lambda: (Screen.COLOUR_WHITE, Screen.A_NORMAL, BACKGROUND),
     {
-        'title': (Screen.COLOUR_CYAN, Screen.A_BOLD, BACKGROUND),
+        'title': (Screen.COLOUR_MAGENTA, Screen.A_BOLD, BACKGROUND),
         'borders': (Screen.COLOUR_BLUE, Screen.A_NORMAL, BACKGROUND),
     }
 )
+"""Our custom color scheme."""
 
-class WorkerInfo:
 
-    def __init__(self, addr, info: Dict):
-        self.addr = addr
-        self.max_memory = info['memory_limit']
-        self.current_memory = info['metrics']['memory']
-        self.cpu = info['metrics']['cpu']
-        self.fds = info['metrics']['num_fds']
-        self.executing = info['metrics']['executing']
-        self.in_memory = info['metrics']['in_memory']
-        self.ready = info['metrics']['ready']
-        self.in_flight = info['metrics']['in_flight']
-        # self._raw = info
+@dataclass
+class WorkerInfoModel:
+    """Information about a Dask worker.
+
+    Args:
+        addr: The address of the dask worker
+        max_memory: The total amount of memory available to the worker in bytes
+        current_memory: The current amount of memory used by the worker in bytes
+        executing: The number of tasks executing on the worker
+        in_memory: The number of tasks that are in memory on the worker
+        ready: The number of tasks that are ready on the worker
+        in_flight: The number of tasks that are inflight on the worker
+
+    """
+
+    addr: str
+    max_memory: int
+    current_memory: int
+    cpu: float
+    fds: int
+    executing: int
+    in_memory: int
+    ready: int
+    in_flight: int
+
+    @classmethod
+    def from_worker(cls: 'WorkerInfoModel', addr: str, info: Dict) -> 'WorkerInfoModel':
+        """Create a `WorkerInfo` object from a worker info dictionary.
+
+        Args:
+            addr: The address of the Dask worker
+            info: The dictionary containing the Dask worker information
+
+        Returns:
+            The `WorkerInfo` object from the dictionary
+        """
+        return cls(
+            addr=addr,
+            max_memory=info['memory_limit'],
+            current_memory=info['metrics']['memory'],
+            cpu=info['metrics']['cpu'],
+            fds=info['metrics']['num_fds'],
+            executing=info['metrics']['executing'],
+            in_memory=info['metrics']['in_memory'],
+            ready=info['metrics']['ready'],
+            in_flight=info['metrics']['in_flight'],
+        )
 
     @property
-    def memory_util(self):
+    def memory_util(self) -> float:
+        """The Dask worker's memory utilization as a percent."""
         return self.current_memory / self.max_memory
 
 class ClusterWorkerInfo:
 
-    def __init__(self, client: Client):
-        self.client: Client = client
+    def __init__(self, dask_client: Client):
+        self._client: Client = dask_client
         self.workers = None
 
     def _refresh_worker_info(self):
         worker_info = self.client.scheduler_info()['workers']
-        self.workers = [WorkerInfo(addr, info) for addr, info in worker_info.items()]
+        self.workers = [WorkerInfo.from_worker(addr, info) for addr, info in worker_info.items()]
 
     @property
     def worker_count(self):
