@@ -7,12 +7,12 @@ from asciimatics.screen import Screen
 from asciimatics.widgets import VerticalDivider
 from asciimatics.exceptions import ResizeScreenError
 
-from dask_top.workers import ClusterWorkerInfo, WorkerInfoView
+from dtop.workers import WorkerInfoManager, WorkerInfoScene
 
 
 def demo(screen: Screen, scene):
     scenes = [
-        Scene([WorkerInfoView(screen, workers)], -1, name="Worker Info"),
+        Scene([WorkerInfoScene(screen, workers)], -1, name="Worker Info"),
     ]
     screen.force_update()
     screen.play(scenes, stop_on_resize=True, start_scene=scene, allow_int=True)
@@ -20,7 +20,7 @@ def demo(screen: Screen, scene):
 
 c = Client('tcp://127.0.0.1:8786')
 
-workers = ClusterWorkerInfo(c)
+workers = WorkerInfoManager(c)
 last_scene = None
 while True:
     try:

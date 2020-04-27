@@ -9,6 +9,7 @@ license = "MIT"
 python = "^3.8"
 asciimatics = {git = "https://github.com/peterbrittain/asciimatics"}
 click = "^7.1.1"
+distributed = "^2.15.0"
 
 [tool.poetry.dev-dependencies]
 pylint = "^2.4.4"

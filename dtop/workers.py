@@ -4,7 +4,7 @@ import time
 from datetime import datetime as dt
 from collections import defaultdict
 import threading
-from typing import Dict
+from typing import Dict, List
 from dataclasses import dataclass
 
 
@@ -21,7 +21,7 @@ PALETTE = defaultdict(
     {
         'title': (Screen.COLOUR_MAGENTA, Screen.A_BOLD, BACKGROUND),
         'borders': (Screen.COLOUR_BLUE, Screen.A_NORMAL, BACKGROUND),
-    }
+    },
 )
 """Our custom color scheme."""
 
@@ -79,48 +79,64 @@ class WorkerInfoModel:
         """The Dask worker's memory utilization as a percent."""
         return self.current_memory / self.max_memory
 
-class ClusterWorkerInfo:
+class WorkerInfoManager:
+    """Manage refreshes of worker information as well as provide rollups
+    and formatting of worker information.
+
+    Args:
+        dask_client: The Dask client
+
+    """
 
     def __init__(self, dask_client: Client):
         self._client: Client = dask_client
-        self.workers = None
+        self.workers: List[WorkerInfoModel] = []
+        self._refresh()
 
-    def _refresh_worker_info(self):
+    def _refresh(self) -> None:
+        """Update worker information."""
         worker_info = self.client.scheduler_info()['workers']
-        self.workers = [WorkerInfo.from_worker(addr, info) for addr, info in worker_info.items()]
+        self.workers = [WorkerInfoModel.from_worker(addr, info) for addr, info in worker_info.items()]
 
     @property
     def worker_count(self):
+        """The number of workers in the cluster."""
         return len(self.workers)
 
-    @property
-    def worker_info(self):
-        info = [
-            [worker.addr, str(worker.cpu), str(worker.memory_util), str(worker.fds)]
-            for worker in self.workers
-        ]
-        return info
+class WorkerInfoScene(Frame):
+    """The Worker Info Overview Scene.
 
+    Args:
+        screen: The screen on which this scene will be displayed
+        worker_info_manager: The `WorkerInfoManager` used to render the scene
 
-class WorkerInfoView(Frame):
+    """
 
-    def __init__(self, screen, client: Client):
+    def __init__(self, screen, worker_info_manager: WorkerInfoManager):
         super(WorkerInfoView, self).__init__(screen, screen.height, screen.width, title='Worker Info', reduce_cpu=False)
 
         self._last_frame = 0
-        self._model = client
-        self._model._refresh_worker_info()
+        self._model = worker_info_manager
+        self._model._refresh()
         self.data =  {'updated_at': str(dt.now())}
         self.palette = PALETTE
 
-        # Number Of Workers | Average CPU | Average Mem | Total FD | Total Executing | Total In Memory | Total Ready | Total In Flight
         rollup_layout = Layout([100])
         self.add_layout(rollup_layout)
         self.rollup_widget = MultiColumnListBox(
             round(screen.height * .05),
             ['12%'] * 8,
             [],
-            titles=['No. Workers', 'Avg. CPU', 'Avg. Mem', 'Ttl Fds', 'Ttl Executing', 'Ttl In Mem', 'Ttl Ready', 'Ttl In Flight'],
+            titles=[
+                'Worker Count',
+                'Average CPU',
+                'Average Memory',
+                'Total Fds',
+                'Total Executing',
+                'Total In Mem',
+                'Total Ready',
+                'Total In Flight',
+            ],
             parser=AsciimaticsParser()
         )
         rollup_layout.add_widget(self.rollup_widget)
@@ -133,16 +149,41 @@ class WorkerInfoView(Frame):
         self.add_layout(column_layout)
         self.worker_widget = MultiColumnListBox(
             round(screen.height * .95),
-            ['20%', '10%', '20%', '10%', '10%', '10%', '10%', '10%'],
+            [
+                '20%',
+                '10%',
+                '20%',
+                '10%',
+                '10%',
+                '10%',
+                '10%',
+                '10%',
+            ],
+
             [],
-            titles=['Worker Address', 'CPU', 'Memory', 'File Descriptors', 'Executing', 'In Memory', 'Ready', 'In Flight'],
+            titles=[
+                'Worker Address',
+                'CPU',
+                'Memory',
+                'File Descriptors',
+                'Executing',
+                'In Memory',
+                'Ready',
+                'In Flight',
+            ],
             parser=AsciimaticsParser(),
         )
         column_layout.add_widget(self.worker_widget)
 
         self.fix()
 
-    def _update(self, frame_no):
+    def _update(self, frame_no: int) -> None:
+        """Override the method to force a poll of the Dask cluster on a regular interval.
+
+        Args:
+            frame_no: The number of the frame that should be rendered
+
+        """
         if frame_no - self._last_frame >= self.frame_update_count or self._last_frame == 0:
 
             self._last_frame = frame_no
@@ -160,15 +201,15 @@ class WorkerInfoView(Frame):
                     (
                         [
                             worker.addr,
-                            self._get_cpu(worker),
-                            self._get_mem(worker),
+                            self._format_cpu(worker),
+                            self._format_mem(worker),
                             str(worker.fds),
                             str(worker.executing),
                             str(worker.in_memory),
                             str(worker.ready),
                             str(worker.in_flight)
                         ],
-                        idx
+                        idx,
                     )
                 )
 
@@ -184,25 +225,45 @@ class WorkerInfoView(Frame):
             self.worker_widget.options = worker_options
 
             num_workers = len(self._model.workers)
-            self.rollup_widget.options = [([
-                str(num_workers),
-                f'{cpu_total / num_workers:.2f}',
-                f'{mem_total / num_workers * 100:.2f}%',
-                str(fds_total),
-                str(exec_total),
-                str(in_mem_total),
-                str(ready_total),
-                str(in_flight_total)], 0)
+            self.rollup_widget.options = [
+                (
+                    [
+                        str(num_workers),
+                        f'{cpu_total / num_workers:.2f}',
+                        f'{mem_total / num_workers * 100:.2f}%',
+                        str(fds_total),
+                        str(exec_total),
+                        str(in_mem_total),
+                        str(ready_total),
+                        str(in_flight_total)
+                    ],
+                    0,
+                 )
 
             ]
         super(WorkerInfoView, self)._update(frame_no)
 
     @property
-    def frame_update_count(self):
+    def frame_update_count(self) -> int:
+        """How often this scene should be updated.
+
+        Returns:
+            How many redraws should occur before this scene is updated
+
+        """
         return 20 # 20 == 1 second
 
     @staticmethod
-    def _get_human_readable_mem(byte_count: int) -> str:
+    def _get_human_readable_byte_count(byte_count: int) -> str:
+        """Get a human readable byte count. Currently up to Gigabytes.
+
+        Args:
+            byte_count: The non-adjusted byte count to convert
+
+        Returns:
+            The adjusted byte count, to make it more human readable
+
+        """
         gigabytes = byte_count / 1e9
         if gigabytes > 1:
             return f'{gigabytes:.2f} GB'
@@ -211,7 +272,17 @@ class WorkerInfoView(Frame):
         if megabytes > 1:
             return f'{megabytes:.2f} MB'
 
-    def _get_cpu(self, worker: WorkerInfo) -> str:
+
+    def _format_cpu(self, worker: WorkerInfoModel) -> str:
+        """Format the CPU utilization for a worker.
+
+        Args:
+            worker: The `WorkerInfoModel` for which the CPU utilization is formatted
+
+        Returns:
+            The formatted CPU utilization
+
+        """
         cpu_perc = worker.cpu
         color = ""
         if 40 <= cpu_perc < 75:
@@ -222,15 +293,23 @@ class WorkerInfoView(Frame):
             color = "${2}"
         return f'{color}{cpu_perc}'
 
-    def _get_mem(self, worker: WorkerInfo) -> str:
+    def _format_mem(self, worker: WorkerInfoModel) -> str:
+        """Format the memory utilization for a worker.
+
+        Args:
+            worker: The `WorkerInfoModel` for which the memory utilization is formatted
+
+        Returns:
+            The formatted memory utilization
+
+        """
         memory_perc = worker.memory_util
         mem_used = self._get_human_readable_mem(worker.current_memory)
         mem_total = self._get_human_readable_mem(worker.max_memory)
-        label = f'{memory_perc * 100:.2f}% ({mem_used}/{mem_total})'
-        if 0 < memory_perc < 0.5:
-            color = ""
-        elif 0.5 <= memory_perc < 0.75:
+        mem = f'{memory_perc * 100:.2f}% ({mem_used}/{mem_total})'
+        color = ""
+        if 0.5 <= memory_perc < 0.75:
             color = "${3}"
         elif 0.75 <= memory_perc <= 1.0:
             color = "${1}"
-        return color + label
+        return f'{color}{mem}'
