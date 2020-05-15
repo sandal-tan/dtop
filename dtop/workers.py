@@ -95,7 +95,7 @@ class WorkerInfoManager:
 
     def _refresh(self) -> None:
         """Update worker information."""
-        worker_info = self.client.scheduler_info()['workers']
+        worker_info = self._client.scheduler_info()['workers']
         self.workers = [WorkerInfoModel.from_worker(addr, info) for addr, info in worker_info.items()]
 
     @property
@@ -113,7 +113,7 @@ class WorkerInfoScene(Frame):
     """
 
     def __init__(self, screen, worker_info_manager: WorkerInfoManager):
-        super(WorkerInfoView, self).__init__(screen, screen.height, screen.width, title='Worker Info', reduce_cpu=False)
+        super(WorkerInfoScene, self).__init__(screen, screen.height, screen.width, title='Worker Info', reduce_cpu=False)
 
         self._last_frame = 0
         self._model = worker_info_manager
@@ -187,7 +187,7 @@ class WorkerInfoScene(Frame):
         if frame_no - self._last_frame >= self.frame_update_count or self._last_frame == 0:
 
             self._last_frame = frame_no
-            self._model._refresh_worker_info()
+            self._model._refresh()
             worker_options = []
             cpu_total = 0.0
             mem_total = 0.0
@@ -241,7 +241,7 @@ class WorkerInfoScene(Frame):
                  )
 
             ]
-        super(WorkerInfoView, self)._update(frame_no)
+        super(WorkerInfoScene, self)._update(frame_no)
 
     @property
     def frame_update_count(self) -> int:
@@ -304,8 +304,8 @@ class WorkerInfoScene(Frame):
 
         """
         memory_perc = worker.memory_util
-        mem_used = self._get_human_readable_mem(worker.current_memory)
-        mem_total = self._get_human_readable_mem(worker.max_memory)
+        mem_used = self._get_human_readable_byte_count(worker.current_memory)
+        mem_total = self._get_human_readable_byte_count(worker.max_memory)
         mem = f'{memory_perc * 100:.2f}% ({mem_used}/{mem_total})'
         color = ""
         if 0.5 <= memory_perc < 0.75:
